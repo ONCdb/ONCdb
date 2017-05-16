@@ -1,0 +1,3 @@
+INSERT INTO "instruments" VALUES(1,'ACS',NULL);
+INSERT INTO "instruments" VALUES(2,'WFC3',NULL);
+INSERT INTO "instruments" VALUES(3,'NICMOS',NULL);

@@ -47,15 +47,6 @@ CREATE TABLE telescopes (
     PRIMARY KEY(id),
     FOREIGN KEY (publication_shortname) REFERENCES publications (shortname) ON UPDATE CASCADE
 );
-CREATE TABLE data_requests (
-    id INTEGER NOT NULL UNIQUE,
-    source_id NUMERIC NOT NULL,
-    source TEXT ,
-    data_request TEXT ,
-    purpose TEXT ,
-    PRIMARY KEY(id),
-    FOREIGN KEY (source_id) REFERENCES sources (id) ON UPDATE CASCADE
-);
 CREATE TABLE versions (
     id INTEGER NOT NULL,
     version REAL UNIQUE NOT NULL,
@@ -106,6 +97,7 @@ CREATE TABLE spectral_types (
     source_id INTEGER NOT NULL,
     spectral_type REAL NOT NULL,
     spectral_type_unc REAL,
+    luminosity_class TEXT,
     gravity TEXT,
     suffix TEXT,
     regime TEXT,
@@ -180,6 +172,28 @@ CREATE TABLE spectra (
 	best INTEGER , 
 	version REAL , 
 	local_spectrum SPECTRUM , 
+	PRIMARY KEY(id), 
+	FOREIGN KEY (source_id) REFERENCES sources (id) ON UPDATE CASCADE, 
+	FOREIGN KEY (publication_shortname) REFERENCES publications (shortname) ON UPDATE CASCADE, 
+	FOREIGN KEY (telescope_id) REFERENCES telescopes (id) ON UPDATE CASCADE, 
+	FOREIGN KEY (instrument_id) REFERENCES instruments (id) ON UPDATE CASCADE, 
+	FOREIGN KEY (mode_id) REFERENCES modes (id) ON UPDATE CASCADE 
+);
+CREATE TABLE images (
+	id INTEGER NOT NULL UNIQUE, 
+	source_id INTEGER NOT NULL, 
+	image IMAGE NOT NULL, 
+	band TEXT NOT NULL , 
+	regime TEXT , 
+	publication_shortname TEXT , 
+	obs_date TEXT , 
+	instrument_id INTEGER , 
+	telescope_id INTEGER , 
+	mode_id INTEGER , 
+	filename TEXT , 
+	comments TEXT , 
+	best INTEGER , 
+	version REAL , 
 	PRIMARY KEY(id), 
 	FOREIGN KEY (source_id) REFERENCES sources (id) ON UPDATE CASCADE, 
 	FOREIGN KEY (publication_shortname) REFERENCES publications (shortname) ON UPDATE CASCADE, 
