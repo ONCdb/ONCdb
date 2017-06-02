@@ -201,3 +201,14 @@ CREATE TABLE images (
 	FOREIGN KEY (instrument_id) REFERENCES instruments (id) ON UPDATE CASCADE, 
 	FOREIGN KEY (mode_id) REFERENCES modes (id) ON UPDATE CASCADE 
 );
+CREATE VIEW browse
+AS 
+SELECT
+*,
+(select count(*) from spectra where source_id=sources.id) as spectra, 
+(select count(*) from images where source_id=sources.id) as images, 
+(select count(*) from photometry where source_id=sources.id) as photometry,
+(select count(*) from parallaxes where source_id=sources.id) as parallaxes,
+(select count(*) from spectral_types where source_id=sources.id) as spectral_types
+from sources
+;
