@@ -210,5 +210,4 @@ SELECT
 (select count(*) from photometry where source_id=sources.id) as photometry,
 (select count(*) from parallaxes where source_id=sources.id) as parallaxes,
 (select count(*) from spectral_types where source_id=sources.id) as spectral_types
-from sources
-;
+from sources;
