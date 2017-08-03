@@ -1,4 +1,4 @@
-CREATE TABLE "changelog" (
+CREATE TABLE changelog (
 	`id`	INTEGER NOT NULL UNIQUE,
 	`date`	TEXT,
 	`user`	TEXT,
@@ -8,19 +8,19 @@ CREATE TABLE "changelog" (
 	`filename`	TEXT,
 	PRIMARY KEY(id)
 );
-CREATE TABLE "ignore" (
+CREATE TABLE ignore (
 	`id`	INTEGER NOT NULL UNIQUE,
 	`id1`	INTEGER NOT NULL,
 	`id2`	INTEGER NOT NULL,
 	`tablename`	TEXT NOT NULL,
 	PRIMARY KEY(id)
 );
-CREATE TABLE "modes" (
+CREATE TABLE modes (
 	`id`	INTEGER NOT NULL UNIQUE,
 	`mode`	TEXT NOT NULL,
 	PRIMARY KEY(id)
 );
-CREATE TABLE "systems" (
+CREATE TABLE systems (
 	`id`	INTEGER NOT NULL UNIQUE,
 	`name`	TEXT NOT NULL,
 	PRIMARY KEY(id)
@@ -78,6 +78,7 @@ CREATE TABLE photometry (
     band TEXT NOT NULL,
     magnitude REAL NOT NULL,
     magnitude_unc REAL ,
+    flag INTEGER ,
     system_id INTEGER ,
     telescope_id INTEGER ,
     instrument_id INTEGER ,
@@ -85,7 +86,6 @@ CREATE TABLE photometry (
     epoch TEXT ,
     ra REAL,
     dec REAL,
-    flags TEXT,
     comments TEXT ,
     version REAL ,
     PRIMARY KEY(id),
