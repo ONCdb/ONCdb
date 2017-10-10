@@ -78,7 +78,7 @@ CREATE TABLE photometry (
     band TEXT NOT NULL,
     magnitude REAL NOT NULL,
     magnitude_unc REAL ,
-    flag INTEGER ,
+    flags TEXT ,
     system_id INTEGER ,
     telescope_id INTEGER ,
     instrument_id INTEGER ,
