@@ -34,22 +34,29 @@ def generate_ONCdb():
     db.add_data(source_list, 'sources')
     
     # Populate the SYSTEMS, INSTRUMENTS, TELESCOPES and PUBLICATIONS tables
-    db.add_data([['name'],['Vega']], 'systems')
-    db.add_data([['name','publication_shortname'],['HST','']], 'telescopes')
-    db.add_data([['name','publication_shortname'],['ACS',''],['NICMOS',''],['WFPC2',''],['WFC3','']], 'instruments')
-    db.add_data([['bibcode','shortname','DOI','description'],['2013yCat..22070010R','Robb13','','VizieR Online Data Catalog: HST Treasury Program on the ONC']], 'publications')
+    db.add_data([['name'],['Vega']], 'systems', clean_up=False)
+    db.add_data([['name','publication_shortname'],['HST','']], 'telescopes', clean_up=False)
+    db.add_data([['name','publication_shortname'],['ACS',''],['NICMOS',''],['WFPC2',''],['WFC3','']], 'instruments', clean_up=False)
+    db.add_data([['bibcode','shortname','DOI','description'],['2013yCat..22070010R','Robb13','','VizieR Online Data Catalog: HST Treasury Program on the ONC']], 'publications', clean_up=False)
+    
+    # Populate the other tables with dummy data
+    db.query("pragma foreign_keys=OFF")
+    db.modify("INSERT INTO spectra (source_id, spectrum) VALUES(0,'/foobar/test.fits')")
+    db.modify("INSERT INTO spectral_types (source_id, spectral_type) VALUES(0,0)")
+    db.modify("INSERT INTO parallaxes (source_id, parallax) VALUES(0,0)")
+    db.query("pragma foreign_keys=ON")
     
     db.save()
     db.close()
     
-    # # Add the ACS photometry
-    # add_acs_data()
-    #
-    # # Add the NICMOS photometry
-    # add_nicmos_data()
-    #
-    # # Add the WPC photometry
-    # add_wpc2_data()
+    # Add the ACS photometry
+    add_acs_data()
+    
+    # Add the NICMOS photometry
+    add_nicmos_data()
+    
+    # Add the WPC photometry
+    add_wpc2_data()
     
     return
 
