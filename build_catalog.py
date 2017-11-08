@@ -1,3 +1,9 @@
+"""
+Module to ingest arbitrary VizieR catalogs into a custom cross-matched database
+
+Authors: Andrea Lin, Joe Filippazzo
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -26,6 +32,13 @@ class Database(object):
         self.n_sources = len(self.catalog)
         self.history = "{}: Database created".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         self.grouped = False
+        
+    @property
+    def info(self):
+        """
+        Print the history
+        """
+        print(self.history)
         
     def ingest_VizieR(self, viz_output, cat_name, id_col, radius=0.25):
         """
@@ -135,13 +148,6 @@ class Database(object):
                 
             # Update the history
             self.history += "\n{}: Catalog {} ingested.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),cat_name)
-        
-    @property
-    def info(self):
-        """
-        Print the history
-        """
-        print(self.history)
 
     def group_sources(self, dist_crit=0.25):
         """
@@ -292,29 +298,29 @@ class Database(object):
             
             # restrict to one-to-one matches, sort by oncID so that matches are paired
             o2o_new = onc_gr.loc[(onc_gr['oncflag'].str.contains('o')) & (onc_gr['catname'] == catname) ,:].sort_values('oncID')
-            o2o_acs = onc_gr.loc[(onc_gr['oncID'].isin(o2o_new['oncID']) & (onc_gr['catname'] == truth)), :].sort_values('oncID')
+            o2o_old = onc_gr.loc[(onc_gr['oncID'].isin(o2o_new['oncID']) & (onc_gr['catname'] == truth)), :].sort_values('oncID')
             
             # get coords
             c_o2o_new = SkyCoord(o2o_new.loc[o2o_new['catname'] == catname, 'ra_corr'],\
                                  o2o_new.loc[o2o_new['catname'] == catname, 'dec_corr'], unit='degree')
-            c_o2o_acs = SkyCoord(o2o_acs.loc[o2o_acs['catname'] == truth, 'ra_corr'],\
-                                 o2o_acs.loc[o2o_acs['catname'] == truth, 'dec_corr'], unit='degree')
+            c_o2o_old = SkyCoord(o2o_old.loc[o2o_old['catname'] == truth, 'ra_corr'],\
+                                 o2o_old.loc[o2o_old['catname'] == truth, 'dec_corr'], unit='degree')
                              
-            print(len(c_o2o_acs), 'one-to-one matches found!')
+            print(len(c_o2o_old), 'one-to-one matches found!')
             
-            if len(c_o2o_acs)>0:
+            if len(c_o2o_old)>0:
                 
                 delta_ra = []
                 delta_dec = []
                 
-                for i in range(len(c_o2o_acs)):
+                for i in range(len(c_o2o_old)):
                     # offsets FROM ACS TO new catalog
-                    ri, di = c_o2o_acs[i].spherical_offsets_to(c_o2o_new[i])
+                    ri, di = c_o2o_old[i].spherical_offsets_to(c_o2o_new[i])
                     
                     delta_ra.append(ri.arcsecond)
                     delta_dec.append(di.arcsecond)
                     
-                    progress_meter((i+1)*100./len(c_o2o_acs))
+                    progress_meter((i+1)*100./len(c_o2o_old))
                     
                 delta_ra = np.array(delta_ra)
                 delta_dec = np.array(delta_dec)
