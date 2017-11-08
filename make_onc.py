@@ -6,6 +6,7 @@ from astropy.io import ascii
 import astropy.table as at
 import numpy as np
 from astrodbkit import astrodb
+import pandas as pd
 
 # Photometry flags
 # --------------------------------------
@@ -17,9 +18,14 @@ from astrodbkit import astrodb
 # --------------------------------------
 flags = {0:'E', 1:'A', 2:'B', 3:'C', 4:'D'}
 
-def generate_ONCdb():
+def generate_ONCdb(cat):
     """
     Generate the database from a list of unique sources and the Robberto+2013 data
+    
+    Parameters
+    ----------
+    cat: pandas.DataFrame
+         The assembled catalog
     """
     # Make an empty database
     astrodb.create_database('orion.db', 'orion.sql', overwrite=True)
@@ -28,7 +34,13 @@ def generate_ONCdb():
     db = astrodb.Database('orion.db')
     
     # Load the source list
-    source_list = ascii.read('raw_data/uncorrected_source_list.txt', delimiter='\t')
+    source_list = at.Table(cat.catalog.values, names=cat.catalog.columns)
+    
+    # Rename some columns
+    source_list.rename_column('oncID', 'id')
+    source_list.rename_column('oncflag', 'comments')
+    source_list.rename_column('ra_corr', 'ra')
+    source_list.rename_column('dec_corr', 'dec')
     
     # Populate the SOURCES table (must have 'ra' and 'dec' columns)
     db.add_data(source_list, 'sources')
@@ -50,30 +62,40 @@ def generate_ONCdb():
     db.close()
     
     # Add the ACS photometry
-    add_acs_data()
+    try:
+        add_acs_data()
+    except:
+        pass
     
     # Add the NICMOS photometry
-    add_nicmos_data()
-    
+    try:
+        add_nicmos_data()
+    except:
+        pass
+
     # Add the WPC photometry
-    add_wpc2_data()
-    
+    try:
+        add_wpc2_data()
+    except:
+        pass
+        
     return
 
-def add_acs_data(db='orion.db', file='raw_data/ACS_with_id.txt'):
+def add_acs_data(db='orion.sql', file='raw_data/viz_acs_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
     db = astrodb.Database(db)
     
     # Read in the data
-    acs = ascii.read(file, data_start=1)
+    acs = ascii.read(file)
     
     # Rename some columns
     acs.rename_column('Obs', 'epoch')
     acs.rename_column('_RAJ2000', 'ra')
     acs.rename_column('_DEJ2000', 'dec')
-    
+    acs.rename_column('oncID', 'id')
+        
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     acs['publication_shortname'] = ['Robb13']*len(acs)
     acs['telescope_id'] = [1]*len(acs)
@@ -101,9 +123,9 @@ def add_acs_data(db='orion.db', file='raw_data/ACS_with_id.txt'):
                     row['magnitude_unc'] = np.nan
                 if row['flags']=='C':
                     row['magnitude_unc'] = np.nan
-                if not row['magnitude'].strip():
+                if not str(row['magnitude']).strip():
                     row['magnitude'] = np.nan
-                if not row['magnitude_unc'].strip():
+                if not str(row['magnitude_unc']).strip():
                     row['magnitude_unc'] = np.nan
                     
             # Make sure the magntiudes are floats
@@ -126,19 +148,20 @@ def add_acs_data(db='orion.db', file='raw_data/ACS_with_id.txt'):
     db.save()
     db.close()
 
-def add_nicmos_data(db='orion.db', file='raw_data/NICMOS_with_id.txt'):
+def add_nicmos_data(db='orion.sql', file='raw_data/viz_nicmos_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
     db = astrodb.Database(db)
     
     # Read in the data
-    nic = ascii.read(file, data_start=1)
+    nic = ascii.read(file)
     
     # Rename some columns
-    # nic.rename_column('Obs', 'epoch')
+    nic.rename_column('Obs', 'epoch')
     nic.rename_column('_RAJ2000', 'ra')
     nic.rename_column('_DEJ2000', 'dec')
+    nic.rename_column('oncID', 'id')
     
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     nic['publication_shortname'] = ['Robb13']*len(nic)
@@ -192,19 +215,20 @@ def add_nicmos_data(db='orion.db', file='raw_data/NICMOS_with_id.txt'):
     db.save()
     db.close()
 
-def add_wpc2_data(db='orion.db', file='raw_data/WFPC2_with_id.txt'):
+def add_wpc2_data(db='orion.sql', file='raw_data/viz_wfpc2_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
     db = astrodb.Database(db)
     
     # Read in the data
-    wpc = ascii.read(file, data_start=1)
+    wpc = ascii.read(file)
     
     # Rename some columns
-    # wpc.rename_column('Obs', 'epoch')
+    wpc.rename_column('Obs', 'epoch')
     wpc.rename_column('_RAJ2000', 'ra')
     wpc.rename_column('_DEJ2000', 'dec')
+    wpc.rename_column('oncID', 'id')
     
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     wpc['publication_shortname'] = ['Robb13']*len(wpc)

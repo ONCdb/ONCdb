@@ -28,10 +28,11 @@ class Database(object):
             The name of the database
         """
         self.name = name
-        self.catalog = pd.DataFrame(columns=('oncID','oncflag','catname','catID','ra_corr','dec_corr'))
+        self.catalog = pd.DataFrame(columns=('oncID','oncflag','cat_name','catID','ra_corr','dec_corr'))
         self.n_sources = len(self.catalog)
         self.history = "{}: Database created".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         self.grouped = False
+        self.catalogs = {}
         
     @property
     def info(self):
@@ -40,35 +41,36 @@ class Database(object):
         """
         print(self.history)
         
-    def ingest_VizieR(self, viz_output, cat_name, id_col, radius=0.25):
+    def ingest_VizieR(self, path, cat_name, id_col, count=-1):
         """
         Ingest a data file from Vizier and regroup sources
         
         Parameters
         ----------
-        viz_output: str
+        path: str
             The path to the exported VizieR data
         cat_name: str
             The name of the added catalog
         id_col: str
             The name of the column containing the unique ids
-        radius: float
-            The distance in arcsec to be used for cross matching
+        count: int
+            The number of table rows to add
+            (This is mainly for testing purposes)
         """
         # Check if the catalog is already ingested
-        if cat_name in self.catalog['catname'].tolist():
+        if cat_name in self.catalog['cat_name'].tolist():
             
             print('Catalog {} already ingested.'.format(cat_name))
             
         else:
             
             # Read in the TSV file and rename some columns
-            raw_data = pd.read_csv(viz_output, sep='\t', comment='#', engine='python')[:10]
+            raw_data = pd.read_csv(path, sep='\t', comment='#', engine='python')[:count]
             data = raw_data[[id_col,'_RAJ2000','_DEJ2000']].groupby(id_col).agg(lambda x: np.mean(x))
             data.insert(0,'dec_corr', data['_DEJ2000'])
             data.insert(0,'ra_corr', data['_RAJ2000'])
             data.insert(0,'catID', data.index)
-            data.insert(0,'catname', cat_name)
+            data.insert(0,'cat_name', cat_name)
             data.insert(0,'oncflag', '')
             data.insert(0,'oncID', np.nan)
             data = data.reset_index(drop=True)
@@ -148,6 +150,8 @@ class Database(object):
                 
             # Update the history
             self.history += "\n{}: Catalog {} ingested.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),cat_name)
+            
+            self.catalogs.update({cat_name:(path,id_col)})
 
     def group_sources(self, dist_crit=0.25):
         """
@@ -166,7 +170,7 @@ class Database(object):
         onc_df = self.catalog.copy()
         
         # 'new source' numbering starts at highest ACS number + 1
-        new_source = max(onc_df.loc[onc_df['catname'] == 'ACS', 'catID'].values) + 1
+        new_source = max(onc_df.loc[onc_df['cat_name'] == 'ACS', 'catID'].values) + 1
         
         exclude = set()
         
@@ -203,23 +207,23 @@ class Database(object):
                 
                 num_group = len(mindex)
                 
-                match = onc_df.loc[mindex,['catname','catID']]
+                match = onc_df.loc[mindex,['cat_name','catID']]
                 
                 # check for multiple objects in same catalog (any duplicates will flag as True)
-                if match.duplicated(subset='catname', keep=False).any() == True:
+                if match.duplicated(subset='cat_name', keep=False).any() == True:
                     
                     onc_df.loc[mindex,'oncflag'] = 'd'
                     
                 # check for one-to-one matches between ACS sources and new_cat sources (when new_cat is not ACS)
-                elif 'ACS' in match['catname'].values:
+                elif 'ACS' in match['cat_name'].values:
                     
                     onc_df.loc[mindex,'oncflag'] = 'o'
                     
                 onc_df.loc[mindex,'oncflag'] += str(num_group)
                 
                 # use ACS number if it exists -- if multiple, use lowest
-                if ('ACS' in match['catname'].values) == True:
-                    onc_df.loc[mindex,'oncID'] = min(match.loc[match['catname'] == 'ACS','catID'].values)
+                if ('ACS' in match['cat_name'].values) == True:
+                    onc_df.loc[mindex,'oncID'] = min(match.loc[match['cat_name'] == 'ACS','catID'].values)
                     
                 # otherwise give it a new number
                 else:
@@ -273,7 +277,42 @@ class Database(object):
         """
         joblib.dump(self, path)
         
-    def correct_offsets(self, catname, truth='ACS'):
+    def export_IDs(self):
+        """
+        Put the new source IDs of the cross-matched catalog back into the raw data
+        
+        Parameters
+        """
+        for cat_name,(path,id_col) in self.catalogs.items():
+            
+            # Change the filename
+            filename = path.replace('.tsv','_with_IDs.tsv')
+            
+            # Get object metadata
+            cat = self.catalog.loc[:,['oncID','oncflag','catname','catID','ra_corr','dec_corr','_RAJ2000','_DEJ2000']]
+            
+            # Rename columns to fit the ONCdbWeb schema
+            cat.rename(columns={'oncID':'id', 'oncflag':'comments', '_RAJ2000':'ra', '_DEJ2000':'dec'}, inplace=True)
+            
+            # Get the relevant rows
+            cat = self.catalog.loc[self.catalog['cat_name'] == cat_name, ['oncID','catID']]
+            
+            # Rename for easy merging
+            cat.rename(columns={'catID':id_col}, inplace=True)
+            
+            # Get the raw data
+            raw = pd.read_csv(path, sep='\t', comment='#', engine='python')
+            
+            # Merge the lists
+            final = cat.merge(raw)
+            
+            # Rename columns
+            cat.rename(columns={'oncID':'id', 'oncflag':'comments', '_RAJ2000':'ra', '_DEJ2000':'dec'}, inplace=True)
+            
+            # Write it to file
+            final.to_csv(filename, sep='\t', index=False)
+        
+    def correct_offsets(self, cat_name, truth='ACS'):
         """
         Function to determine systematic, linear offsets between catalogs
         
@@ -282,7 +321,7 @@ class Database(object):
         
         Parameters
         ----------
-        catname: str
+        cat_name: str
             Name of catalog to correct
         truth: str
             The catalog to measure against
@@ -297,14 +336,14 @@ class Database(object):
             onc_gr = self.catalog.copy()
             
             # restrict to one-to-one matches, sort by oncID so that matches are paired
-            o2o_new = onc_gr.loc[(onc_gr['oncflag'].str.contains('o')) & (onc_gr['catname'] == catname) ,:].sort_values('oncID')
-            o2o_old = onc_gr.loc[(onc_gr['oncID'].isin(o2o_new['oncID']) & (onc_gr['catname'] == truth)), :].sort_values('oncID')
+            o2o_new = onc_gr.loc[(onc_gr['oncflag'].str.contains('o')) & (onc_gr['cat_name'] == cat_name) ,:].sort_values('oncID')
+            o2o_old = onc_gr.loc[(onc_gr['oncID'].isin(o2o_new['oncID']) & (onc_gr['cat_name'] == truth)), :].sort_values('oncID')
             
             # get coords
-            c_o2o_new = SkyCoord(o2o_new.loc[o2o_new['catname'] == catname, 'ra_corr'],\
-                                 o2o_new.loc[o2o_new['catname'] == catname, 'dec_corr'], unit='degree')
-            c_o2o_old = SkyCoord(o2o_old.loc[o2o_old['catname'] == truth, 'ra_corr'],\
-                                 o2o_old.loc[o2o_old['catname'] == truth, 'dec_corr'], unit='degree')
+            c_o2o_new = SkyCoord(o2o_new.loc[o2o_new['cat_name'] == cat_name, 'ra_corr'],\
+                                 o2o_new.loc[o2o_new['cat_name'] == cat_name, 'dec_corr'], unit='degree')
+            c_o2o_old = SkyCoord(o2o_old.loc[o2o_old['cat_name'] == truth, 'ra_corr'],\
+                                 o2o_old.loc[o2o_old['cat_name'] == truth, 'dec_corr'], unit='degree')
                              
             print(len(c_o2o_old), 'one-to-one matches found!')
             
@@ -332,21 +371,21 @@ class Database(object):
                 mu_dec, std_dec = norm.fit(delta_dec)
                 
                 # Update the coordinates of the appropriate sources
-                self.catalog.loc[self.catalog['catname']==catname]['ra_corr'] += mu_ra
-                self.catalog.loc[self.catalog['catname']==catname]['dec_corr'] += mu_dec
+                self.catalog.loc[self.catalog['cat_name']==cat_name]['ra_corr'] += mu_ra
+                self.catalog.loc[self.catalog['cat_name']==cat_name]['dec_corr'] += mu_dec
                 
                 print('Delta RA (arcsec):', mu_ra)
                 print('Delta DEC (arcsec):', mu_dec)
                 
                 # Update history
                 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                self.history += "\n{}: {} sources shifted by {} deg in RA and {} deg in Declination.".format(now, catname, mu_ra, mu_dec)
+                self.history += "\n{}: {} sources shifted by {} deg in RA and {} deg in Declination.".format(now, cat_name, mu_ra, mu_dec)
                 
                 # return (delta_ra, delta_dec, mu_ra, mu_dec, std_ra, std_dec)
                 
             else:
                 
-                print('Cannot correct offsets in {} sources.'.format(catname))
+                print('Cannot correct offsets in {} sources.'.format(cat_name))
 
 def progress_meter(progress):
     """
