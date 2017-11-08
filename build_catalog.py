@@ -5,6 +5,7 @@ import sys
 import astropy.units as u
 import datetime
 from scipy.stats import norm
+from sklearn.externals import joblib
 from astropy.coordinates import SkyCoord
 from astropy.coordinates import ICRS, Galactic, FK4, FK5
 from astropy.coordinates import Angle, Latitude, Longitude
@@ -234,6 +235,37 @@ class Database(object):
         self.history += "\n{}: Catalog grouped with radius {} arcsec.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),dist_crit)
         
         self.grouped = True
+        
+    def load(self, path):
+        """
+        Load the catalog from file
+        
+        Parameters
+        ----------
+        path: str
+            The path to the file
+        """
+        # Get the object
+        DB = joblib.load(path)
+        
+        # Load the attributes
+        self.catalog   = DB.catalog
+        self.n_sources = DB.n_sources
+        self.name      = DB.name
+        self.history   = DB.history
+        
+        del DB
+        
+    def save(self, path):
+        """
+        Save the catalog to file for faster loading next time
+        
+        Parameters
+        ----------
+        path: str
+            The path to the file
+        """
+        joblib.dump(self, path)
         
     def correct_offsets(self, catname, truth='ACS'):
         """
