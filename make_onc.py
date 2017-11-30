@@ -64,17 +64,17 @@ def generate_ONCdb(cat):
     except IOError:
         pass
     
-    # # Add the NICMOS photometry
-    # try:
-    #     add_nicmos_data()
-    # except:
-    #     pass
-    #
-    # # Add the WPC photometry
-    # try:
-    #     add_wpc2_data()
-    # except:
-    #     pass
+    # Add the NICMOS photometry
+    try:
+        add_nicmos_data(db)
+    except:
+        pass
+
+    # Add the WPC photometry
+    try:
+        add_wpc2_data(db)
+    except:
+        pass
         
     return db
 
@@ -141,12 +141,10 @@ def add_acs_data(db, file='raw_data/viz_acs_with_IDs.tsv'):
             
     db.save()
 
-def add_nicmos_data(db='orion.sql', file='raw_data/viz_nicmos_with_IDs.tsv'):
+def add_nicmos_data(db, file='raw_data/viz_nicmos_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
-    db = astrodb.Database(db)
-    
     # Read in the data
     nic = ascii.read(file)
     
@@ -208,12 +206,10 @@ def add_nicmos_data(db='orion.sql', file='raw_data/viz_nicmos_with_IDs.tsv'):
     db.save()
     db.close()
 
-def add_wpc2_data(db='orion.sql', file='raw_data/viz_wfpc2_with_IDs.tsv'):
+def add_wpc2_data(db, file='raw_data/viz_wfpc2_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
-    db = astrodb.Database(db)
-    
     # Read in the data
     wpc = ascii.read(file)
     
