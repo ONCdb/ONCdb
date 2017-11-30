@@ -6,8 +6,9 @@ from astropy.io import ascii
 import astropy.table as at
 import numpy as np
 from astrodbkit import astrodb
+from . import build_catalog as bc
 import pandas as pd
-
+path = '/Users/jfilippazzo/Documents/Modules/ONCdb/'
 # Photometry flags
 # --------------------------------------
 # 1:good                            => A
@@ -17,6 +18,36 @@ import pandas as pd
 # 0:undetected                      => E
 # --------------------------------------
 flags = {0:'E', 1:'A', 2:'B', 3:'C', 4:'D'}
+
+def ONC_catalogs_to_database(radius=0.5):
+    """
+    Generated the SQL database from the input catalogs
+    """
+    # Empty instance
+    onc = bc.Dataset()
+    
+    # Ingest Vizier catalogs
+    try:
+        onc.ingest_VizieR(path+'raw_data/viz_acs.tsv', 'ACS', 'ONCacs')
+    except:
+        pass
+    try:
+        onc.ingest_VizieR(path+'raw_data/viz_nicmos.tsv', 'NICMOS', 'ONCnic')
+    except:
+        pass
+    try:
+        onc.ingest_VizieR(path+'raw_data/viz_wfpc2.tsv', 'WFPC2', 'ONCpc2')
+    except:
+        pass
+        
+    # Run crossmatch
+    onc.group_sources(radius)
+    
+    # Export IDS
+    onc.export_IDs()
+    
+    # Generate SQL database
+    generate_ONCdb(onc)
 
 def generate_ONCdb(cat):
     """
@@ -28,10 +59,10 @@ def generate_ONCdb(cat):
          The assembled catalog
     """
     # Make an empty database
-    astrodb.create_database('orion.db', 'orion.sql', overwrite=True)
+    astrodb.create_database(path+'orion.db', path+'orion.sql', overwrite=True)
     
     # Load the empty database
-    db = astrodb.Database('orion.db')
+    db = astrodb.Database(path+'orion.db')
     
     # Load the source list
     source_list = at.Table(cat.catalog.values, names=cat.catalog.columns)
@@ -78,7 +109,7 @@ def generate_ONCdb(cat):
         
     return db
 
-def add_acs_data(db, file='raw_data/viz_acs_with_IDs.tsv'):
+def add_acs_data(db, file=path+'raw_data/viz_acs_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
@@ -141,7 +172,7 @@ def add_acs_data(db, file='raw_data/viz_acs_with_IDs.tsv'):
             
     db.save()
 
-def add_nicmos_data(db, file='raw_data/viz_nicmos_with_IDs.tsv'):
+def add_nicmos_data(db, file=path+'raw_data/viz_nicmos_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
@@ -204,9 +235,8 @@ def add_nicmos_data(db, file='raw_data/viz_nicmos_with_IDs.tsv'):
             pass
             
     db.save()
-    db.close()
 
-def add_wpc2_data(db, file='raw_data/viz_wfpc2_with_IDs.tsv'):
+def add_wpc2_data(db, file=path+'raw_data/viz_wfpc2_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
@@ -269,5 +299,4 @@ def add_wpc2_data(db, file='raw_data/viz_wfpc2_with_IDs.tsv'):
             pass
             
     db.save()
-    db.close()
 
