@@ -16,7 +16,7 @@ from astropy.coordinates import SkyCoord
 from astropy.coordinates import ICRS, Galactic, FK4, FK5
 from astropy.coordinates import Angle, Latitude, Longitude
 
-class Database(object):
+class Dataset(object):
     
     def __init__(self, name='Test'):
         """
@@ -31,8 +31,8 @@ class Database(object):
         self.catalog = pd.DataFrame(columns=('oncID','oncflag','cat_name','catID','ra_corr','dec_corr'))
         self.n_sources = len(self.catalog)
         self.history = "{}: Database created".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        self.grouped = False
         self.catalogs = {}
+        self.xmatch_radius = 0
         
     @property
     def info(self):
@@ -75,7 +75,7 @@ class Database(object):
             data.insert(0,'oncID', np.nan)
             data = data.reset_index(drop=True)
             
-            print('{} has {} sources in {} rows of data.'.format(cat_name,len(data),len(raw_data)))
+            print('{} has {} unique sources in {} rows of data.'.format(cat_name,len(data),len(raw_data)))
             
             # Get sky coordinates of new sources from RA and Dec
             new_coords = SkyCoord(data['_RAJ2000'], data['_DEJ2000'], unit='degree')
@@ -165,6 +165,7 @@ class Database(object):
         # Clear the source grouping
         self.catalog['oncID'] = np.nan
         self.catalog['oncflag'] = ''
+        self.xmatch_radius = dist_crit
         
         # Make a copy of the pairwise distances
         onc_df = self.catalog.copy()
@@ -174,13 +175,13 @@ class Database(object):
         
         exclude = set()
         
-        print("Grouping sources with {} arcsec radius...".format(dist_crit))
+        print("Grouping sources with {} arcsec radius...".format(self.xmatch_radius))
         for k in range(len(onc_df)):
             
             if k not in exclude:
                 
                 # find where dist < dist_crit
-                m = onc_df.loc[onc_df[str(k)] < dist_crit]
+                m = onc_df.loc[onc_df[str(k)] < self.xmatch_radius]
                 
                 mindex = set(m[str(k)].index.tolist())
                 mindex_updated = mindex.copy()
@@ -191,7 +192,7 @@ class Database(object):
                 # keep adding match values until no new values are added
                 while mindex_same == False:
                     for x in mindex:
-                        y = onc_df.loc[onc_df[str(x)] < dist_crit]
+                        y = onc_df.loc[onc_df[str(x)] < self.xmatch_radius]
                         
                         yindex = set(y[str(x)].index.tolist())
                         
@@ -207,7 +208,12 @@ class Database(object):
                 
                 num_group = len(mindex)
                 
-                match = onc_df.loc[mindex,['cat_name','catID']]
+                match = onc_df.loc[mindex,['cat_name','catID','_RAJ2000','_DEJ2000']]
+                
+                # Get average RA and Dec of multiple matches
+                if len(match)>1:
+                    pass
+                    # Add ra and dec columns as well
                 
                 # check for multiple objects in same catalog (any duplicates will flag as True)
                 if match.duplicated(subset='cat_name', keep=False).any() == True:
@@ -242,10 +248,8 @@ class Database(object):
         self.catalog = onc_df
         
         # Update the history
-        self.history += "\n{}: Catalog grouped with radius {} arcsec.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),dist_crit)
-        
-        self.grouped = True
-        
+        self.history += "\n{}: Catalog grouped with radius {} arcsec.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), self.xmatch_radius)
+                
     def load(self, path):
         """
         Load the catalog from file
@@ -289,13 +293,13 @@ class Database(object):
             filename = path.replace('.tsv','_with_IDs.tsv')
             
             # Get object metadata
-            cat = self.catalog.loc[:,['oncID','oncflag','catname','catID','ra_corr','dec_corr','_RAJ2000','_DEJ2000']]
+            cat = self.catalog.loc[:,['oncID','oncflag','cat_name','catID','ra_corr','dec_corr','_RAJ2000','_DEJ2000']]
             
             # Rename columns to fit the ONCdbWeb schema
-            cat.rename(columns={'oncID':'id', 'oncflag':'comments', '_RAJ2000':'ra', '_DEJ2000':'dec'}, inplace=True)
+            cat.rename(columns={'oncID':'source_id', 'oncflag':'comments', '_RAJ2000':'ra', '_DEJ2000':'dec'}, inplace=True)
             
             # Get the relevant rows
-            cat = self.catalog.loc[self.catalog['cat_name'] == cat_name, ['oncID','catID']]
+            cat = cat.loc[self.catalog['cat_name'] == cat_name, ['source_id','catID']]
             
             # Rename for easy merging
             cat.rename(columns={'catID':id_col}, inplace=True)
@@ -306,11 +310,10 @@ class Database(object):
             # Merge the lists
             final = cat.merge(raw)
             
-            # Rename columns
-            cat.rename(columns={'oncID':'id', 'oncflag':'comments', '_RAJ2000':'ra', '_DEJ2000':'dec'}, inplace=True)
-            
             # Write it to file
             final.to_csv(filename, sep='\t', index=False)
+            
+            print('{} IDs exported to {}.'.format(len(cat),filename))
         
     def correct_offsets(self, cat_name, truth='ACS'):
         """
@@ -327,12 +330,17 @@ class Database(object):
             The catalog to measure against
         """
         # Must be grouped!
-        if not self.grouped:
+        if not self.xmatch_radius:
             
             print("Please run group_sources() before running correct_offsets().")
             
         else:
             
+            # First, remove any previous catalog correction
+            self.catalog.loc[self.catalog['cat_name']==cat_name, 'ra_corr'] = self.catalog.loc[self.catalog['cat_name']==cat_name, '_RAJ2000']
+            self.catalog.loc[self.catalog['cat_name']==cat_name, 'dec_corr'] = self.catalog.loc[self.catalog['cat_name']==cat_name, '_DEJ2000']
+            
+            # Copy the catalog
             onc_gr = self.catalog.copy()
             
             # restrict to one-to-one matches, sort by oncID so that matches are paired
@@ -370,18 +378,21 @@ class Database(object):
                 mu_ra, std_ra = norm.fit(delta_ra)
                 mu_dec, std_dec = norm.fit(delta_dec)
                 
-                # Update the coordinates of the appropriate sources
-                self.catalog.loc[self.catalog['cat_name']==cat_name]['ra_corr'] += mu_ra
-                self.catalog.loc[self.catalog['cat_name']==cat_name]['dec_corr'] += mu_dec
+                # Fix precision
+                mu_ra = round(mu_ra, 6)
+                mu_dec = round(mu_dec, 6)
                 
-                print('Delta RA (arcsec):', mu_ra)
-                print('Delta DEC (arcsec):', mu_dec)
+                # Update the coordinates of the appropriate sources
+                print('Shifting {} sources by {}" in RA and {}" in Dec...'.format(cat_name,mu_ra,mu_dec))
+                self.catalog.loc[self.catalog['cat_name']==cat_name, 'ra_corr'] += mu_ra
+                self.catalog.loc[self.catalog['cat_name']==cat_name, 'dec_corr'] += mu_dec
                 
                 # Update history
                 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.history += "\n{}: {} sources shifted by {} deg in RA and {} deg in Declination.".format(now, cat_name, mu_ra, mu_dec)
                 
-                # return (delta_ra, delta_dec, mu_ra, mu_dec, std_ra, std_dec)
+                # Regroup the sources since many have moved
+                self.group_sources(self.xmatch_radius)
                 
             else:
                 

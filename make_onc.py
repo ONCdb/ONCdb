@@ -58,35 +58,30 @@ def generate_ONCdb(cat):
     db.modify("INSERT INTO parallaxes (source_id, parallax) VALUES(0,0)")
     db.query("pragma foreign_keys=ON")
     
-    db.save()
-    db.close()
-    
     # Add the ACS photometry
     try:
-        add_acs_data()
-    except:
+        add_acs_data(db)
+    except IOError:
         pass
     
-    # Add the NICMOS photometry
-    try:
-        add_nicmos_data()
-    except:
-        pass
-
-    # Add the WPC photometry
-    try:
-        add_wpc2_data()
-    except:
-        pass
+    # # Add the NICMOS photometry
+    # try:
+    #     add_nicmos_data()
+    # except:
+    #     pass
+    #
+    # # Add the WPC photometry
+    # try:
+    #     add_wpc2_data()
+    # except:
+    #     pass
         
-    return
+    return db
 
-def add_acs_data(db='orion.sql', file='raw_data/viz_acs_with_IDs.tsv'):
+def add_acs_data(db, file='raw_data/viz_acs_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
-    db = astrodb.Database(db)
-    
     # Read in the data
     acs = ascii.read(file)
     
@@ -94,8 +89,7 @@ def add_acs_data(db='orion.sql', file='raw_data/viz_acs_with_IDs.tsv'):
     acs.rename_column('Obs', 'epoch')
     acs.rename_column('_RAJ2000', 'ra')
     acs.rename_column('_DEJ2000', 'dec')
-    acs.rename_column('oncID', 'id')
-        
+    
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     acs['publication_shortname'] = ['Robb13']*len(acs)
     acs['telescope_id'] = [1]*len(acs)
@@ -146,7 +140,6 @@ def add_acs_data(db='orion.sql', file='raw_data/viz_acs_with_IDs.tsv'):
             pass
             
     db.save()
-    db.close()
 
 def add_nicmos_data(db='orion.sql', file='raw_data/viz_nicmos_with_IDs.tsv'):
     """
