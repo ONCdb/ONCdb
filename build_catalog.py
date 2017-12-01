@@ -69,7 +69,7 @@ class Dataset(object):
             # Read in the TSV file and rename some columns
             data = pd.read_csv(path, sep='\t', comment='#', engine='python')[:count]
             # data = data.groupby(id_col).agg(lambda x: np.mean(x))
-            data.insert(0,'catID', ['{}_{}'.format(cat_name,n) for n in range(len(data))])
+            data.insert(0,'catID', ['{}_{}'.format(cat_name,n+1) for n in range(len(data))])
             data.insert(0,'dec_corr', data['_DEJ2000'])
             data.insert(0,'ra_corr', data['_RAJ2000'])
             data.insert(0,'source_id', np.nan)
@@ -118,7 +118,7 @@ class Dataset(object):
         # Group the sources
         core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
         core_samples_mask[db.core_sample_indices_] = True
-        source_ids = db.labels_
+        source_ids = db.labels_+1
         unique_source_ids = list(set(source_ids))
         n_sources = len(unique_source_ids)
         
@@ -129,7 +129,7 @@ class Dataset(object):
         self.catalog = pd.DataFrame(columns=('source_id','ra','dec','flag'))
         self.catalog['id'] = unique_source_ids
         self.catalog[['ra','dec']] = unique_coords
-        self.catalog['flag'] = ['d{}'.format(i) for i in Counter(source_ids).values()]
+        self.catalog['flag'] = ['d{}'.format(i) if i>1 else '' for i in Counter(source_ids).values()]
         
         # Update history
         self.history += "\n{}: Catalog grouped with radius {} arcsec.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), self.xmatch_radius)
