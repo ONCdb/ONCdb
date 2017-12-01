@@ -19,7 +19,7 @@ path = '/Users/jfilippazzo/Documents/Modules/ONCdb/'
 # --------------------------------------
 flags = {0:'E', 1:'A', 2:'B', 3:'C', 4:'D'}
 
-def ONC_catalogs_to_database(radius=0.5):
+def ONC_catalogs_to_database(radius=0.5, count=50):
     """
     Generated the SQL database from the input catalogs
     """
@@ -28,26 +28,25 @@ def ONC_catalogs_to_database(radius=0.5):
     
     # Ingest Vizier catalogs
     try:
-        onc.ingest_VizieR(path+'raw_data/viz_acs.tsv', 'ACS', 'ONCacs')
+        onc.ingest_VizieR(path+'raw_data/viz_acs.tsv', 'ACS', 'ONCacs', count=count)
     except:
         pass
     try:
-        onc.ingest_VizieR(path+'raw_data/viz_nicmos.tsv', 'NICMOS', 'ONCnic')
+        onc.ingest_VizieR(path+'raw_data/viz_nicmos.tsv', 'NICMOS', 'ONCnic3', count=count)
     except:
         pass
     try:
-        onc.ingest_VizieR(path+'raw_data/viz_wfpc2.tsv', 'WFPC2', 'ONCpc2')
+        onc.ingest_VizieR(path+'raw_data/viz_wfpc2.tsv', 'WFPC2', 'ONCpc2', count=count)
     except:
         pass
         
     # Run crossmatch
     onc.group_sources(radius)
     
-    # Export IDS
-    onc.export_IDs()
-    
     # Generate SQL database
-    generate_ONCdb(onc)
+    db = generate_ONCdb(onc)
+    
+    return onc, db
 
 def generate_ONCdb(cat):
     """
@@ -68,10 +67,7 @@ def generate_ONCdb(cat):
     source_list = at.Table(cat.catalog.values, names=cat.catalog.columns)
     
     # Rename some columns
-    source_list.rename_column('oncID', 'id')
-    source_list.rename_column('oncflag', 'comments')
-    source_list.rename_column('ra_corr', 'ra')
-    source_list.rename_column('dec_corr', 'dec')
+    source_list.rename_column('flag', 'comments')
     
     # Populate the SOURCES table (must have 'ra' and 'dec' columns)
     db.add_data(source_list, 'sources')
@@ -91,30 +87,31 @@ def generate_ONCdb(cat):
     
     # Add the ACS photometry
     try:
-        add_acs_data(db)
+        add_acs_data(db, cat.ACS)
     except IOError:
         pass
     
     # Add the NICMOS photometry
     try:
-        add_nicmos_data(db)
-    except:
+        add_nicmos_data(db, cat.NICMOS)
+    except IOError:
         pass
 
     # Add the WPC photometry
     try:
-        add_wpc2_data(db)
+        add_wpc2_data(db, cat.WFPC2)
     except:
         pass
         
     return db
 
-def add_acs_data(db, file=path+'raw_data/viz_acs_with_IDs.tsv'):
+def add_acs_data(db, cat):#, file=path+'raw_data/viz_acs_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
     # Read in the data
-    acs = ascii.read(file)
+    # acs = ascii.read(file)
+    acs = at.Table.from_pandas(cat)
     
     # Rename some columns
     acs.rename_column('Obs', 'epoch')
@@ -172,18 +169,21 @@ def add_acs_data(db, file=path+'raw_data/viz_acs_with_IDs.tsv'):
             
     db.save()
 
-def add_nicmos_data(db, file=path+'raw_data/viz_nicmos_with_IDs.tsv'):
+def add_nicmos_data(db, cat):#file=path+'raw_data/viz_nicmos_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
     # Read in the data
-    nic = ascii.read(file)
+    # nic = ascii.read(file)
+    nic = at.Table.from_pandas(cat)
     
     # Rename some columns
-    nic.rename_column('Obs', 'epoch')
+    try:
+        nic.rename_column('Obs', 'epoch')
+    except:
+        pass
     nic.rename_column('_RAJ2000', 'ra')
     nic.rename_column('_DEJ2000', 'dec')
-    nic.rename_column('oncID', 'id')
     
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     nic['publication_shortname'] = ['Robb13']*len(nic)
@@ -212,9 +212,9 @@ def add_nicmos_data(db, file=path+'raw_data/viz_nicmos_with_IDs.tsv'):
                     row['magnitude_unc'] = np.nan
                 if row['flags']=='C':
                     row['magnitude_unc'] = np.nan
-                if not row['magnitude'].strip():
+                if not str(row['magnitude']).strip():
                     row['magnitude'] = np.nan
-                if not row['magnitude_unc'].strip():
+                if not str(row['magnitude_unc']).strip():
                     row['magnitude_unc'] = np.nan
                     
             # Make sure the magntiudes are floats
@@ -236,23 +236,26 @@ def add_nicmos_data(db, file=path+'raw_data/viz_nicmos_with_IDs.tsv'):
             
     db.save()
 
-def add_wpc2_data(db, file=path+'raw_data/viz_wfpc2_with_IDs.tsv'):
+def add_wpc2_data(db, cat):#file=path+'raw_data/viz_wfpc2_with_IDs.tsv'):
     """
     Read in the Robberto+2013 ACS data and match objects by RA and Dec
     """
     # Read in the data
-    wpc = ascii.read(file)
+    # wpc = ascii.read(file)
+    wpc = at.Table.from_pandas(cat)
     
     # Rename some columns
-    wpc.rename_column('Obs', 'epoch')
+    try:
+        wpc.rename_column('Obs', 'epoch')
+    except:
+        pass
     wpc.rename_column('_RAJ2000', 'ra')
     wpc.rename_column('_DEJ2000', 'dec')
-    wpc.rename_column('oncID', 'id')
     
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     wpc['publication_shortname'] = ['Robb13']*len(wpc)
     wpc['telescope_id'] = [1]*len(wpc)
-    wpc['instrument_id'] = [2]*len(wpc)
+    wpc['instrument_id'] = [3]*len(wpc)
     wpc['system_id'] = [1]*len(wpc)
 
     # Add the photometry to the database one band at a time
@@ -276,9 +279,9 @@ def add_wpc2_data(db, file=path+'raw_data/viz_wfpc2_with_IDs.tsv'):
                     row['magnitude_unc'] = np.nan
                 if row['flags']=='C':
                     row['magnitude_unc'] = np.nan
-                if not row['magnitude'].strip():
+                if not str(row['magnitude']).strip():
                     row['magnitude'] = np.nan
-                if not row['magnitude_unc'].strip():
+                if not str(row['magnitude_unc']).strip():
                     row['magnitude_unc'] = np.nan
                     
             # Make sure the magntiudes are floats

@@ -10,6 +10,8 @@ import pandas as pd
 import sys
 import astropy.units as u
 import datetime
+from sklearn.cluster import DBSCAN
+from collections import Counter
 from scipy.stats import norm
 from sklearn.externals import joblib
 from astropy.coordinates import SkyCoord
@@ -17,6 +19,273 @@ from astropy.coordinates import ICRS, Galactic, FK4, FK5
 from astropy.coordinates import Angle, Latitude, Longitude
 
 class Dataset(object):
+    
+    def __init__(self, name='Test'):
+        """
+        Initialize a database object
+        
+        Parameters
+        ----------
+        name: str
+            The name of the database
+        """
+        self.name = name
+        self.catalog = pd.DataFrame(columns=('source_id','ra','dec','flag','cat_name','catID'))
+        self.n_sources = len(self.catalog)
+        self.history = "{}: Database created".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        self.catalogs = {}
+        self.xmatch_radius = 0
+        
+    @property
+    def info(self):
+        """
+        Print the history
+        """
+        print(self.history)
+        
+    def ingest_VizieR(self, path, cat_name, id_col, count=-1):
+        """
+        Ingest a data file from Vizier and regroup sources
+        
+        Parameters
+        ----------
+        path: str
+            The path to the exported VizieR data
+        cat_name: str
+            The name of the added catalog
+        id_col: str
+            The name of the column containing the unique ids
+        count: int
+            The number of table rows to add
+            (This is mainly for testing purposes)
+        """
+        # Check if the catalog is already ingested
+        if cat_name in self.catalogs:
+            
+            print('Catalog {} already ingested.'.format(cat_name))
+            
+        else:
+            
+            # Read in the TSV file and rename some columns
+            data = pd.read_csv(path, sep='\t', comment='#', engine='python')[:count]
+            # data = data.groupby(id_col).agg(lambda x: np.mean(x))
+            data.insert(0,'catID', ['{}_{}'.format(cat_name,n) for n in range(len(data))])
+            data.insert(0,'dec_corr', data['_DEJ2000'])
+            data.insert(0,'ra_corr', data['_RAJ2000'])
+            data.insert(0,'source_id', np.nan)
+            data = data.reset_index(drop=True)
+            
+            print('Ingesting {} rows from {} catalog...'.format(len(data),cat_name))
+            
+            # Save the raw data as an attribute
+            setattr(self, cat_name, data)
+                
+            # Update the history
+            self.history += "\n{}: Catalog {} ingested.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),cat_name)
+            self.catalogs.update({cat_name:(path,id_col)})
+            
+    def group_sources(self, radius=0.001, plot=False):
+        """
+        Calculate the centers of the point clusters given the
+        radius and minimum number of points
+
+        Parameters
+        ----------
+        coords: array-like
+            The list of (x,y) coordinates of all clicks
+        radius: int
+            The distance threshold in degrees for cluster membership
+
+        Returns
+        -------
+        np.ndarray
+            An array of the cluster centers
+        """
+        # Gather the catalogs
+        cats = pd.concat([getattr(self, cat_name) for cat_name in self.catalogs])
+        
+        # Clear the source grouping
+        cats['oncID'] = np.nan
+        cats['oncflag'] = ''
+        self.xmatch_radius = radius
+        
+        # Make a list of the coordinates of each catalog row
+        coords = cats[['ra_corr','dec_corr']].values
+        
+        # Perform DBSCAN to find clusters
+        db = DBSCAN(eps=radius, min_samples=1).fit(coords)
+        
+        # Group the sources
+        core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
+        core_samples_mask[db.core_sample_indices_] = True
+        source_ids = db.labels_
+        unique_source_ids = list(set(source_ids))
+        n_sources = len(unique_source_ids)
+        
+        # Get the average coordinates of all clusters
+        unique_coords = np.asarray([np.mean(coords[source_ids==id], axis=0) for id in list(set(source_ids))])
+        
+        # Generate a source catalog
+        self.catalog = pd.DataFrame(columns=('source_id','ra','dec','flag'))
+        self.catalog['id'] = unique_source_ids
+        self.catalog[['ra','dec']] = unique_coords
+        self.catalog['flag'] = ['d{}'.format(i) for i in Counter(source_ids).values()]
+        
+        # Update history
+        self.history += "\n{}: Catalog grouped with radius {} arcsec.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), self.xmatch_radius)
+        
+        # Update the source_ids in each catalog
+        cats['source_id'] = source_ids
+        for cat_name in self.catalogs:
+            
+            # Get the source_ids for the catalog
+            cat_source_ids = cats.loc[cats['catID'].str.startswith(cat_name)]['source_id']
+            
+            # Get the catalog
+            cat = getattr(self, cat_name)
+            
+            # Update the source_ids and put it back
+            cat['source_id'] = cat_source_ids
+            setattr(self, cat_name, cat)
+            
+            del cat, cat_source_ids
+            
+        del cats
+        
+        # Plot it
+        if plot:
+            plt.figure()
+            plt.title('{} clusters for {} sources'.format(n_sources,len(coords)))
+            
+            colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, n_sources)]
+            for k, col in zip(unique_source_ids, colors):
+                
+                class_member_mask = (source_ids == k)
+                xy = coords[class_member_mask & core_samples_mask]
+                
+                marker = 'o'
+                if len(xy)==1:
+                    col = [0,0,0,1]
+                    marker = '+'
+                    
+                plt.plot(xy[:, 0], xy[:, 1], color=tuple(col), marker=marker, markerfacecolor=tuple(col))
+
+    def load(self, path):
+        """
+        Load the catalog from file
+        
+        Parameters
+        ----------
+        path: str
+            The path to the file
+        """
+        # Get the object
+        DB = joblib.load(path)
+        
+        # Load the attributes
+        self.catalog   = DB.catalog
+        self.n_sources = DB.n_sources
+        self.name      = DB.name
+        self.history   = DB.history
+        
+        del DB
+        
+    def save(self, path):
+        """
+        Save the catalog to file for faster loading next time
+        
+        Parameters
+        ----------
+        path: str
+            The path to the file
+        """
+        joblib.dump(self, path)
+        
+    def correct_offsets(self, cat_name, truth='ACS'):
+        """
+        Function to determine systematic, linear offsets between catalogs
+        
+        FUTURE -- do this with TweakReg, which also accounts for rotation/scaling
+        See thread at https://github.com/spacetelescope/drizzlepac/issues/77
+        
+        Parameters
+        ----------
+        cat_name: str
+            Name of catalog to correct
+        truth: str
+            The catalog to measure against
+        """
+        # Must be grouped!
+        if not self.xmatch_radius:
+            
+            print("Please run group_sources() before running correct_offsets().")
+            
+        else:
+            
+            # First, remove any previous catalog correction
+            self.catalog.loc[self.catalog['cat_name']==cat_name, 'ra_corr'] = self.catalog.loc[self.catalog['cat_name']==cat_name, '_RAJ2000']
+            self.catalog.loc[self.catalog['cat_name']==cat_name, 'dec_corr'] = self.catalog.loc[self.catalog['cat_name']==cat_name, '_DEJ2000']
+            
+            # Copy the catalog
+            onc_gr = self.catalog.copy()
+            
+            # restrict to one-to-one matches, sort by oncID so that matches are paired
+            o2o_new = onc_gr.loc[(onc_gr['oncflag'].str.contains('o')) & (onc_gr['cat_name'] == cat_name) ,:].sort_values('oncID')
+            o2o_old = onc_gr.loc[(onc_gr['oncID'].isin(o2o_new['oncID']) & (onc_gr['cat_name'] == truth)), :].sort_values('oncID')
+            
+            # get coords
+            c_o2o_new = SkyCoord(o2o_new.loc[o2o_new['cat_name'] == cat_name, 'ra_corr'],\
+                                 o2o_new.loc[o2o_new['cat_name'] == cat_name, 'dec_corr'], unit='degree')
+            c_o2o_old = SkyCoord(o2o_old.loc[o2o_old['cat_name'] == truth, 'ra_corr'],\
+                                 o2o_old.loc[o2o_old['cat_name'] == truth, 'dec_corr'], unit='degree')
+                             
+            print(len(c_o2o_old), 'one-to-one matches found!')
+            
+            if len(c_o2o_old)>0:
+                
+                delta_ra = []
+                delta_dec = []
+                
+                for i in range(len(c_o2o_old)):
+                    # offsets FROM ACS TO new catalog
+                    ri, di = c_o2o_old[i].spherical_offsets_to(c_o2o_new[i])
+                    
+                    delta_ra.append(ri.arcsecond)
+                    delta_dec.append(di.arcsecond)
+                    
+                    progress_meter((i+1)*100./len(c_o2o_old))
+                    
+                delta_ra = np.array(delta_ra)
+                delta_dec = np.array(delta_dec)
+                
+                print('\n')
+                
+                # fit a gaussian
+                mu_ra, std_ra = norm.fit(delta_ra)
+                mu_dec, std_dec = norm.fit(delta_dec)
+                
+                # Fix precision
+                mu_ra = round(mu_ra, 6)
+                mu_dec = round(mu_dec, 6)
+                
+                # Update the coordinates of the appropriate sources
+                print('Shifting {} sources by {}" in RA and {}" in Dec...'.format(cat_name,mu_ra,mu_dec))
+                self.catalog.loc[self.catalog['cat_name']==cat_name, 'ra_corr'] += mu_ra
+                self.catalog.loc[self.catalog['cat_name']==cat_name, 'dec_corr'] += mu_dec
+                
+                # Update history
+                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.history += "\n{}: {} sources shifted by {} deg in RA and {} deg in Declination.".format(now, cat_name, mu_ra, mu_dec)
+                
+                # Regroup the sources since many have moved
+                self.group_sources(self.xmatch_radius)
+                
+            else:
+                
+                print('Cannot correct offsets in {} sources.'.format(cat_name))
+
+
+class Dataset_old(object):
     
     def __init__(self, name='Test'):
         """
@@ -144,9 +413,9 @@ class Dataset(object):
                 self.catalog = pd.concat([pw1,pw2], ignore_index=True)
                 self.n_sources = len(self.catalog)
                 
-                # Symmetrize the matrix
-                mtx = self.catalog[[str(i) for i in range(self.n_sources)]].as_matrix()
-                self.catalog[[str(i) for i in range(self.n_sources)]] = np.tril(mtx)+np.tril(mtx,-1).T 
+                # # Symmetrize the matrix (not necessary!)
+                # mtx = self.catalog[[str(i) for i in range(self.n_sources)]].as_matrix()
+                # self.catalog[[str(i) for i in range(self.n_sources)]] = np.tril(mtx)+np.tril(mtx,-1).T
                 
             # Update the history
             self.history += "\n{}: Catalog {} ingested.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),cat_name)
@@ -171,8 +440,6 @@ class Dataset(object):
         onc_df = self.catalog.copy()
         
         # 'new source' numbering starts at highest ACS number + 1
-        new_source = max(onc_df.loc[onc_df['cat_name'] == 'ACS', 'catID'].values) + 1
-        
         exclude = set()
         
         print("Grouping sources with {} arcsec radius...".format(self.xmatch_radius))
@@ -180,7 +447,7 @@ class Dataset(object):
             
             if k not in exclude:
                 
-                # find where dist < dist_crit
+                # find ROWS where dist < dist_crit
                 m = onc_df.loc[onc_df[str(k)] < self.xmatch_radius]
                 
                 mindex = set(m[str(k)].index.tolist())
@@ -208,13 +475,15 @@ class Dataset(object):
                 
                 num_group = len(mindex)
                 
-                match = onc_df.loc[mindex,['cat_name','catID','_RAJ2000','_DEJ2000']]
+                match = onc_df.loc[mindex,onc_df.columns[:len(onc_df.columns)-len(onc_df)]]
                 
-                # Get average RA and Dec of multiple matches
-                if len(match)>1:
-                    pass
-                    # Add ra and dec columns as well
-                
+                # Get average RA and Dec for source if multiple matches
+                if num_group>1:
+                    
+                    onc_df.loc[mindex,'ra_corr'] = np.mean(match['_RAJ2000'])
+                    onc_df.loc[mindex,'dec_corr'] = np.mean(match['_DEJ2000'])
+                    match = onc_df.loc[mindex,onc_df.columns[:len(onc_df.columns)-len(onc_df)]]
+                    
                 # check for multiple objects in same catalog (any duplicates will flag as True)
                 if match.duplicated(subset='cat_name', keep=False).any() == True:
                     
