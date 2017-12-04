@@ -9,14 +9,19 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import sys
 import astropy.units as u
+import astropy.table as at
 import datetime
 from sklearn.cluster import DBSCAN
 from collections import Counter
 from scipy.stats import norm
+from astroquery.vizier import Vizier
+from astroquery.xmatch import XMatch
 from sklearn.externals import joblib
 from astropy.coordinates import SkyCoord
 from astropy.coordinates import ICRS, Galactic, FK4, FK5
 from astropy.coordinates import Angle, Latitude, Longitude
+
+Vizier.ROW_LIMIT = -1
 
 class Dataset(object):
     
@@ -43,18 +48,22 @@ class Dataset(object):
         """
         print(self.history)
         
-    def ingest_VizieR(self, path, cat_name, id_col, count=-1):
+    def ingest_data(self, data, cat_name, id_col, ra_col='_RAJ2000', dec_col='_DEJ2000', count=-1):
         """
-        Ingest a data file from Vizier and regroup sources
+        Ingest a data file and regroup sources
         
         Parameters
         ----------
-        path: str
-            The path to the exported VizieR data
+        data: str, pandas.DataFrame, astropy.table.Table
+            The path to the exported VizieR data or the data table
         cat_name: str
             The name of the added catalog
         id_col: str
             The name of the column containing the unique ids
+        ra_col: str
+            The name of the RA column
+        dec_col: str
+            The name of the DEC column
         count: int
             The number of table rows to add
             (This is mainly for testing purposes)
@@ -66,14 +75,26 @@ class Dataset(object):
             
         else:
             
-            # Read in the TSV file and rename some columns
-            data = pd.read_csv(path, sep='\t', comment='#', engine='python')[:count]
-            # data = data.groupby(id_col).agg(lambda x: np.mean(x))
+            if isinstance(data, str):
+                path = data
+                data = pd.read_csv(data, sep='\t', comment='#', engine='python')[:count]
+                
+            elif isinstance(data, pd.core.frame.DataFrame):
+                path = type(data)
+                
+            elif isinstance(data, (at.QTable, at.Table)):
+                path = type(data)
+                data = pd.DataFrame(list(data), columns=data.colnames)
+                
+            else:
+                print("Sorry, but I cannot read that data. Try an ascii file path, astropy table, or pandas data frame.")
+                return
+                
+            # Change some names
             data.insert(0,'catID', ['{}_{}'.format(cat_name,n+1) for n in range(len(data))])
-            data.insert(0,'dec_corr', data['_DEJ2000'])
-            data.insert(0,'ra_corr', data['_RAJ2000'])
+            data.insert(0,'dec_corr', data[dec_col])
+            data.insert(0,'ra_corr', data[ra_col])
             data.insert(0,'source_id', np.nan)
-            data = data.reset_index(drop=True)
             
             print('Ingesting {} rows from {} catalog...'.format(len(data),cat_name))
             
@@ -84,6 +105,43 @@ class Dataset(object):
             self.history += "\n{}: Catalog {} ingested.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),cat_name)
             self.catalogs.update({cat_name:(path,id_col)})
             
+    def Vizier_xmatch(self, viz_cat, cat_name, radius=10*u.arcsec):
+        """
+        Use astroquery to pull in and cross match a catalog with sources in self.catalog
+        Note that ingest_ascii adds all rows as potential sources while this only cross matches
+        with existing catalog sources, adding no new sources.
+        
+        Parameters
+        ----------
+        viz_cat: str
+            The catalog string from Vizier (e.g. 'II/246' for 2MASS PSC)
+        cat_name: str
+            A name for the imported catalog (e.g. '2MASS')
+        radius: astropy.units.quantity.Quantity
+            The matching radius
+        """
+        if cat_name[0] in range(10):
+            print("No names beginning with numbers please!")
+            return
+            
+        if cat_name in self.catalogs:
+            print('Catalog {} already ingested.'.format(cat_name))
+            
+        if self.catalog.empty:
+            print('Please run group_sources() before cross matching.')
+            return
+            
+        # Prep the current catalog as an astropy.QTable
+        tab = at.Table.from_pandas(self.catalog)
+        viz_cat = "vizier:{}".format(viz_cat)
+        
+        # Crossmatch with Vizier
+        print("Cross matching {} sources with {} catalog. Please be patient...".format(len(tab), viz_cat))
+        data = XMatch.query(cat1=tab, cat2=viz_cat, max_distance=radius, colRA1='ra', colDec1='dec')
+        
+        # Ingest the data
+        self.ingest_data(data, cat_name, 'id', ra_col='RAJ2000', dec_col='DEJ2000')
+    
     def group_sources(self, radius=0.001, plot=False):
         """
         Calculate the centers of the point clusters given the
@@ -126,7 +184,7 @@ class Dataset(object):
         unique_coords = np.asarray([np.mean(coords[source_ids==id], axis=0) for id in list(set(source_ids))])
         
         # Generate a source catalog
-        self.catalog = pd.DataFrame(columns=('source_id','ra','dec','flag'))
+        self.catalog = pd.DataFrame(columns=('id','ra','dec','flag'))
         self.catalog['id'] = unique_source_ids
         self.catalog[['ra','dec']] = unique_coords
         self.catalog['flag'] = ['d{}'.format(i) if i>1 else '' for i in Counter(source_ids).values()]
@@ -169,7 +227,24 @@ class Dataset(object):
                     marker = '+'
                     
                 plt.plot(xy[:, 0], xy[:, 1], color=tuple(col), marker=marker, markerfacecolor=tuple(col))
-
+                
+    def drop_catalog(self, cat_name):
+        """
+        Remove an imported catalog from the Dataset object
+        
+        Parameters
+        ----------
+        cat_name: str
+            The name given to the catalog
+        """
+        # Delete the name and data
+        self.catalogs.pop(cat_name)
+        delattr(self, cat_name)
+        
+        # Update history
+        print("Deleted {} catalog.".format(cat_name))
+        self.history += "\n{}: Deleted {} catalog.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), cat_name)
+                
     def load(self, path):
         """
         Load the catalog from file

@@ -28,15 +28,15 @@ def ONC_catalogs_to_database(radius=0.5, count=50):
     
     # Ingest Vizier catalogs
     try:
-        onc.ingest_VizieR(path+'raw_data/viz_acs.tsv', 'ACS', 'ONCacs', count=count)
+        onc.ingest_data(path+'raw_data/viz_acs.tsv', 'ACS', 'ONCacs', count=count)
     except:
         pass
     try:
-        onc.ingest_VizieR(path+'raw_data/viz_nicmos.tsv', 'NICMOS', 'ONCnic3', count=count)
+        onc.ingest_data(path+'raw_data/viz_nicmos.tsv', 'NICMOS', 'ONCnic3', count=count)
     except:
         pass
     try:
-        onc.ingest_VizieR(path+'raw_data/viz_wfpc2.tsv', 'WFPC2', 'ONCpc2', count=count)
+        onc.ingest_data(path+'raw_data/viz_wfpc2.tsv', 'WFPC2', 'ONCpc2', count=count)
     except:
         pass
         
