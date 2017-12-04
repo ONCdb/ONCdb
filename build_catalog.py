@@ -105,7 +105,20 @@ class Dataset(object):
             self.history += "\n{}: Catalog {} ingested.".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),cat_name)
             self.catalogs.update({cat_name:(path,id_col)})
             
-    def Vizier_xmatch(self, viz_cat, cat_name, radius=10*u.arcsec):
+    def inventory(self, source_id):
+        """
+        Look at the inventory for a given source
+        """
+        print('Source:')
+        print(at.Table.from_pandas(self.catalog[self.catalog['id']==source_id]).pprint())
+        for cat_name in self.catalogs:
+            cat = getattr(self, cat_name)
+            rows = cat[cat['source_id']==source_id]
+            if not rows.empty:
+                print('\n{}:'.format(cat_name))
+                at.Table.from_pandas(rows).pprint()
+            
+    def Vizier_xmatch(self, viz_cat, cat_name, ra_col='_RAJ2000', dec_col='_DEJ2000', radius=''):
         """
         Use astroquery to pull in and cross match a catalog with sources in self.catalog
         Note that ingest_ascii adds all rows as potential sources while this only cross matches
@@ -120,13 +133,16 @@ class Dataset(object):
         radius: astropy.units.quantity.Quantity
             The matching radius
         """
+        # Make sure the attribute name is good
         if cat_name[0] in range(10):
             print("No names beginning with numbers please!")
             return
             
+        # Make sure catalog is unique
         if cat_name in self.catalogs:
             print('Catalog {} already ingested.'.format(cat_name))
             
+        # Make sure sources have been grouped
         if self.catalog.empty:
             print('Please run group_sources() before cross matching.')
             return
@@ -137,10 +153,13 @@ class Dataset(object):
         
         # Crossmatch with Vizier
         print("Cross matching {} sources with {} catalog. Please be patient...".format(len(tab), viz_cat))
-        data = XMatch.query(cat1=tab, cat2=viz_cat, max_distance=radius, colRA1='ra', colDec1='dec')
+        data = XMatch.query(cat1=tab, cat2=viz_cat, max_distance=radius or self.xmatch_radius*u.deg, colRA1='ra', colDec1='dec', colRA2=ra_col, colDec2=dec_col)
         
         # Ingest the data
-        self.ingest_data(data, cat_name, 'id', ra_col='RAJ2000', dec_col='DEJ2000')
+        self.ingest_data(data, cat_name, 'id', ra_col=ra_col, dec_col=dec_col)
+        
+        # Regroup
+        self.group_sources(self.xmatch_radius)
     
     def group_sources(self, radius=0.001, plot=False):
         """

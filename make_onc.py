@@ -19,7 +19,7 @@ path = '/Users/jfilippazzo/Documents/Modules/ONCdb/'
 # --------------------------------------
 flags = {0:'E', 1:'A', 2:'B', 3:'C', 4:'D'}
 
-def ONC_catalogs_to_database(radius=0.5, count=50):
+def ONC_catalogs_to_database(radius=0.001, count=50):
     """
     Generated the SQL database from the input catalogs
     """
@@ -42,6 +42,12 @@ def ONC_catalogs_to_database(radius=0.5, count=50):
         
     # Run crossmatch
     onc.group_sources(radius)
+    
+    # Get 2MASS
+    onc.Vizier_xmatch('II/246/out', 'TMASS', ra_col='RAJ2000', dec_col='DEJ2000')
+    
+    # Get spectral types from Hillenbrand+2013
+    onc.Vizier_xmatch('J/AJ/146/85/table2', 'Hill13')
     
     # Generate SQL database
     db = generate_ONCdb(onc)
@@ -100,6 +106,12 @@ def generate_ONCdb(cat):
     # Add the WPC photometry
     try:
         add_wpc2_data(db, cat.WFPC2)
+    except:
+        pass
+        
+    # Add the 2MASS photometry
+    try:
+        add_2MASS_data(db, cat.TMASS)
     except:
         pass
         
@@ -303,3 +315,58 @@ def add_wpc2_data(db, cat):#file=path+'raw_data/viz_wfpc2_with_IDs.tsv'):
             
     db.save()
 
+def add_2MASS_data(db, cat):
+    """
+    Read in the cross matched 2MASS data
+    """
+    # Read in the data
+    # tmass = ascii.read(file)
+    tmass = at.Table.from_pandas(cat)
+    
+    # Rename some columns
+    tmass.rename_column('MeasureJD', 'epoch')
+    tmass.rename_column('Qfl', 'flags')
+    
+    # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
+    tmass['publication_shortname'] = ['Cutr03']*len(tmass)
+    tmass['telescope_id'] = [2]*len(tmass)
+    tmass['instrument_id'] = [5]*len(tmass)
+    tmass['system_id'] = [2]*len(tmass)
+    
+    # Add the photometry to the database one band at a time
+    # Rename the columns to match svo_filters
+    bands = {'Jmag':'2MASS.J','Hmag':'2MASS.H','Kmag':'2MASS.Ks'}
+    for n,b in enumerate(bands):
+        try:
+            # Change the column names to add the band
+            tmass.rename_column(b, 'magnitude')
+            tmass.rename_column('e_'+b, 'magnitude_unc')
+            tmass.add_column(at.Column([bands[b]]*len(tmass), 'band'))
+            
+            # Convert flag integer to string
+            tmass['flags'] = at.Column([str(f)[n] if len(str(f))==3 else str(f) for f in tmass['flags']], 'flags')
+            
+            # Move the magnitudes into the correct column
+            for row in tmass:
+                if not str(row['magnitude']).strip():
+                    row['magnitude'] = np.nan
+                if not str(row['magnitude_unc']).strip():
+                    row['magnitude_unc'] = np.nan
+                    
+            # Make sure the magntiudes are floats
+            tmass['magnitude'] = at.Column(tmass['magnitude'], 'magnitude', dtype=float)
+            tmass['magnitude_unc'] = at.Column(tmass['magnitude_unc'], 'magnitude_unc', dtype=float)
+            
+            # Add the data
+            db.query("pragma foreign_keys=OFF")
+            db.add_data(tmass, table='photometry', clean_up=False)
+            db.query("pragma foreign_keys=ON")
+            
+            # Change the column name back
+            tmass.rename_column('magnitude', b)
+            tmass.rename_column('magnitude_unc', 'e_'+b)
+            tmass.remove_column('band')
+        except IOError:
+            pass
+            
+    db.save()
