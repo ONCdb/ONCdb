@@ -5,8 +5,7 @@ Code to generate the ONCdb from Robberto et al. (2013) data
 from astropy.io import ascii
 import astropy.table as at
 import numpy as np
-from astrodbkit import astrodb
-from . import build_catalog as bc
+from astrodbkit import astrodb, astrocat
 import pandas as pd
 path = '/Users/jfilippazzo/Documents/Modules/ONCdb/'
 # Photometry flags
@@ -24,7 +23,7 @@ def ONC_catalogs_to_database(radius=0.001, count=50):
     Generated the SQL database from the input catalogs
     """
     # Empty instance
-    onc = bc.Dataset()
+    onc = astrocat.Catalog()
     
     # Ingest Vizier catalogs
     try:
@@ -60,7 +59,7 @@ def generate_ONCdb(cat):
     
     Parameters
     ----------
-    cat: pandas.DataFrame
+    cat: astrodbkit.astrocat.Catalog
          The assembled catalog
     """
     # Make an empty database
