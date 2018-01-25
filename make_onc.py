@@ -18,7 +18,7 @@ path = '/Users/jfilippazzo/Documents/Modules/ONCdb/'
 # --------------------------------------
 flags = {0:'E', 1:'A', 2:'B', 3:'C', 4:'D'}
 
-def ONC_catalogs_to_database(radius=0.001, count=50):
+def ONC_catalogs_to_database(radius=0.0001, count=-1):
     """
     Generated the SQL database from the input catalogs
     """
@@ -44,6 +44,12 @@ def ONC_catalogs_to_database(radius=0.001, count=50):
     
     # Get 2MASS
     onc.Vizier_xmatch('II/246/out', 'TMASS', ra_col='RAJ2000', dec_col='DEJ2000')
+    
+    # Get GAIA
+    onc.Vizier_xmatch('I/337/gaia', 'GAIA', ra_col='_RAJ2000', dec_col='_DEJ2000')
+    
+    # Get ALLWISE
+    onc.Vizier_xmatch('II/328/allwise', 'ALLWISE', ra_col='RAJ2000', dec_col='DEJ2000')
     
     # Get spectral types from Hillenbrand+2013
     onc.Vizier_xmatch('J/AJ/146/85/table2', 'Hill13')
@@ -93,13 +99,13 @@ def generate_ONCdb(cat):
     # Add the ACS photometry
     try:
         add_acs_data(db, cat.ACS)
-    except IOError:
+    except:
         pass
     
     # Add the NICMOS photometry
     try:
         add_nicmos_data(db, cat.NICMOS)
-    except IOError:
+    except:
         pass
 
     # Add the WPC photometry
