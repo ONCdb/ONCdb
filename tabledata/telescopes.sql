@@ -1,1 +1,3 @@
 INSERT INTO "telescopes" VALUES(1,'HST',NULL);
+INSERT INTO "telescopes" VALUES(2,'2MASS',NULL);
+INSERT INTO "telescopes" VALUES(3,'WISE',NULL);

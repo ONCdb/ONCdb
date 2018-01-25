@@ -45,12 +45,12 @@ def ONC_catalogs_to_database(radius=0.0001, count=-1):
     # Get 2MASS
     onc.Vizier_xmatch('II/246/out', 'TMASS', ra_col='RAJ2000', dec_col='DEJ2000')
     
-    # Get GAIA
-    onc.Vizier_xmatch('I/337/gaia', 'GAIA', ra_col='_RAJ2000', dec_col='_DEJ2000')
-    
+    # # Get GAIA
+    # onc.Vizier_xmatch('I/337/gaia', 'GAIA', ra_col='_RAJ2000', dec_col='_DEJ2000')
+
     # Get ALLWISE
     onc.Vizier_xmatch('II/328/allwise', 'ALLWISE', ra_col='RAJ2000', dec_col='DEJ2000')
-    
+
     # Get spectral types from Hillenbrand+2013
     onc.Vizier_xmatch('J/AJ/146/85/table2', 'Hill13')
     
@@ -85,9 +85,13 @@ def generate_ONCdb(cat):
     
     # Populate the SYSTEMS, INSTRUMENTS, TELESCOPES and PUBLICATIONS tables
     db.add_data([['name'],['Vega']], 'systems', clean_up=False)
-    db.add_data([['name','publication_shortname'],['HST','']], 'telescopes', clean_up=False)
-    db.add_data([['name','publication_shortname'],['ACS',''],['NICMOS',''],['WFPC2',''],['WFC3','']], 'instruments', clean_up=False)
-    db.add_data([['bibcode','shortname','DOI','description'],['2013yCat..22070010R','Robb13','','VizieR Online Data Catalog: HST Treasury Program on the ONC']], 'publications', clean_up=False)
+    db.add_data([['name','publication_shortname'],['HST',''],['2MASS',''],['WISE','']], 'telescopes', clean_up=False)
+    db.add_data([['name','publication_shortname'],['ACS',''],['NICMOS',''],['WFPC2',''],['WFC3',''],['2MASS',''],['WISE','']], 'instruments', clean_up=False)
+    db.add_data([['bibcode','shortname','DOI','description'],\
+                 ['2013yCat..22070010R','Robb13','','VizieR Online Data Catalog: HST Treasury Program on the ONC'],\
+                 ['2003yCat.2246....0C','Cutr03','','VizieR Online Data Catalog: 2MASS All-Sky Catalog of Point Sources'],\
+                 ['2014yCat.2328....0C','Cutr13','','VizieR Online Data Catalog: AllWISE Data Release ']\
+                ], 'publications', clean_up=False)
     
     # Populate the other tables with dummy data
     db.query("pragma foreign_keys=OFF")
@@ -117,6 +121,12 @@ def generate_ONCdb(cat):
     # Add the 2MASS photometry
     try:
         add_2MASS_data(db, cat.TMASS)
+    except:
+        pass
+        
+    # Add the ALLWISE photometry
+    try:
+        add_WISE_data(db, cat.WISE)
     except:
         pass
         
@@ -371,6 +381,62 @@ def add_2MASS_data(db, cat):
             tmass.rename_column('magnitude', b)
             tmass.rename_column('magnitude_unc', 'e_'+b)
             tmass.remove_column('band')
+        except IOError:
+            pass
+            
+    db.save()
+    
+def add_WISE_data(db, cat):
+    """
+    Read in the cross matched WISE data
+    """
+    # Read in the data
+    # wise = ascii.read(file)
+    wise = at.Table.from_pandas(cat)
+    
+    # Rename some columns
+    wise.rename_column('MeasureJD', 'epoch')
+    wise.rename_column('qph', 'flags')
+    
+    # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
+    wise['publication_shortname'] = ['Cutr13']*len(wise)
+    wise['telescope_id'] = [3]*len(wise)
+    wise['instrument_id'] = [6]*len(wise)
+    wise['system_id'] = [2]*len(wise)
+    
+    # Add the photometry to the database one band at a time
+    # Rename the columns to match svo_filters
+    bands = {'W1mag':'WISE.W1','W2mag':'WISE.W2','W3mag':'WISE.W3','W4mag':'WISE.W4'}
+    for n,b in enumerate(bands):
+        try:
+            # Change the column names to add the band
+            wise.rename_column(b, 'magnitude')
+            wise.rename_column('e_'+b, 'magnitude_unc')
+            wise.add_column(at.Column([bands[b]]*len(wise), 'band'))
+            
+            # Convert flag integer to string
+            wise['flags'] = at.Column([str(f)[n] if len(str(f))==3 else str(f) for f in wise['flags']], 'flags')
+            
+            # Move the magnitudes into the correct column
+            for row in wise:
+                if not str(row['magnitude']).strip():
+                    row['magnitude'] = np.nan
+                if not str(row['magnitude_unc']).strip():
+                    row['magnitude_unc'] = np.nan
+                    
+            # Make sure the magntiudes are floats
+            wise['magnitude'] = at.Column(wise['magnitude'], 'magnitude', dtype=float)
+            wise['magnitude_unc'] = at.Column(wise['magnitude_unc'], 'magnitude_unc', dtype=float)
+            
+            # Add the data
+            db.query("pragma foreign_keys=OFF")
+            db.add_data(wise, table='photometry', clean_up=False)
+            db.query("pragma foreign_keys=ON")
+            
+            # Change the column name back
+            wise.rename_column('magnitude', b)
+            wise.rename_column('magnitude_unc', 'e_'+b)
+            wise.remove_column('band')
         except IOError:
             pass
             
