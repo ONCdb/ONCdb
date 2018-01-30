@@ -6,6 +6,7 @@ from astropy.io import ascii
 import astropy.table as at
 import numpy as np
 from astrodbkit import astrodb, astrocat
+from cone_search_plus import csp
 import pandas as pd
 path = '/Users/jfilippazzo/Documents/Modules/ONCdb/'
 # Photometry flags
@@ -25,7 +26,7 @@ def ONC_catalogs_to_database(radius=0.0001, count=-1):
     # Empty instance
     onc = astrocat.Catalog()
     
-    # Ingest Vizier catalogs
+    # Ingest Vizier catalogs where we want to keep all entries
     try:
         onc.ingest_data(path+'raw_data/viz_acs.tsv', 'ACS', 'ONCacs', count=count)
     except:
@@ -39,14 +40,17 @@ def ONC_catalogs_to_database(radius=0.0001, count=-1):
     except:
         pass
         
-    # Run crossmatch
+    # Run grouping
     onc.group_sources(radius)
+    
+    # For these additional catalogs, just pull records if
+    # they are a match with something in the manual catalog
     
     # Get 2MASS
     onc.Vizier_xmatch('II/246/out', 'TMASS', ra_col='RAJ2000', dec_col='DEJ2000')
     
     # # Get GAIA
-    # onc.Vizier_xmatch('I/337/gaia', 'GAIA', ra_col='_RAJ2000', dec_col='_DEJ2000')
+    # onc.Vizier_xmatch('I/337/gaia', 'GAIA')
 
     # Get ALLWISE
     onc.Vizier_xmatch('II/328/allwise', 'ALLWISE', ra_col='RAJ2000', dec_col='DEJ2000')
@@ -126,7 +130,13 @@ def generate_ONCdb(cat):
         
     # Add the ALLWISE photometry
     try:
-        add_WISE_data(db, cat.WISE)
+        add_WISE_data(db, cat.ALLWISE)
+    except:
+        pass
+        
+    # Add the spectral types
+    try:
+        add_Hill13_data(db, cat.Hill13)
     except:
         pass
         
@@ -294,7 +304,7 @@ def add_wpc2_data(db, cat):#file=path+'raw_data/viz_wfpc2_with_IDs.tsv'):
             wpc.rename_column(b, 'magnitude')
             wpc.rename_column('e_'+b, 'magnitude_unc')
             wpc.rename_column('f_'+b, 'flags')
-            wpc.add_column(at.Column(['WFPC2.'+b.lower()]*len(wpc), 'band'))
+            wpc.add_column(at.Column(['WFPC2.'+b.upper()]*len(wpc), 'band'))
             
             # Convert flag integer to string
             wpc['flags'] = at.Column([flags[i] for i in wpc['flags']], 'flags')
@@ -340,7 +350,7 @@ def add_2MASS_data(db, cat):
     
     # Rename some columns
     tmass.rename_column('MeasureJD', 'epoch')
-    tmass.rename_column('Qfl', 'flags')
+    # tmass.rename_column('Qfl', 'flags')
     
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     tmass['publication_shortname'] = ['Cutr03']*len(tmass)
@@ -359,7 +369,7 @@ def add_2MASS_data(db, cat):
             tmass.add_column(at.Column([bands[b]]*len(tmass), 'band'))
             
             # Convert flag integer to string
-            tmass['flags'] = at.Column([str(f)[n] if len(str(f))==3 else str(f) for f in tmass['flags']], 'flags')
+            tmass['flags'] = np.array([list(i) for i in tmass['Qfl']]).T[n]
             
             # Move the magnitudes into the correct column
             for row in tmass:
@@ -395,8 +405,8 @@ def add_WISE_data(db, cat):
     wise = at.Table.from_pandas(cat)
     
     # Rename some columns
-    wise.rename_column('MeasureJD', 'epoch')
-    wise.rename_column('qph', 'flags')
+    # wise.rename_column('MeasureJD', 'epoch')
+    # wise.rename_column('qph', 'flags')
     
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     wise['publication_shortname'] = ['Cutr13']*len(wise)
@@ -414,8 +424,8 @@ def add_WISE_data(db, cat):
             wise.rename_column('e_'+b, 'magnitude_unc')
             wise.add_column(at.Column([bands[b]]*len(wise), 'band'))
             
-            # Convert flag integer to string
-            wise['flags'] = at.Column([str(f)[n] if len(str(f))==3 else str(f) for f in wise['flags']], 'flags')
+            # Convert 'XXXX' flag into list of flags ['X','X','X','X']
+            wise['flags'] = np.array([list(i) for i in wise['qph']]).T[n]
             
             # Move the magnitudes into the correct column
             for row in wise:
@@ -440,4 +450,32 @@ def add_WISE_data(db, cat):
         except IOError:
             pass
             
+    db.save()
+
+def add_Hill13_data(db, cat):
+    """
+    Read in the cross matched Hillenbrand+13 data
+    """
+    # Read in the data
+    hill13 = at.Table.from_pandas(cat)
+    
+    # Collect the spectral types
+    spts = hill13['SpT2']
+    
+    # Convert the spectral types to integers
+    spts = [csp.specType(s) if isinstance(s, str) else [np.nan,''] for s in spts]
+    typ, lc = np.array(spts).T
+    
+    # Add to the table
+    hill13['spectral_type'] = typ
+    hill13['luminosity_class'] = lc
+    
+    # Add column publication_shortname
+    hill13['publication_shortname'] = ['Hill13']*len(hill13)
+    
+    # Add the data
+    db.query("pragma foreign_keys=OFF")
+    db.add_data(hill13, table='spectral_types', clean_up=False)
+    db.query("pragma foreign_keys=ON")
+    
     db.save()
