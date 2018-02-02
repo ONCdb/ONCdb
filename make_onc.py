@@ -3,10 +3,11 @@ Code to generate the ONCdb from Robberto et al. (2013) data
 """
 # from astrodbkit import astrodb
 from astropy.io import ascii
+import astropy.coordinates as coord
 import astropy.table as at
+import astropy.units as q
 import numpy as np
 from astrodbkit import astrodb, astrocat
-from cone_search_plus import csp
 import pandas as pd
 path = '/Users/jfilippazzo/Documents/Modules/ONCdb/'
 # Photometry flags
@@ -19,47 +20,47 @@ path = '/Users/jfilippazzo/Documents/Modules/ONCdb/'
 # --------------------------------------
 flags = {0:'E', 1:'A', 2:'B', 3:'C', 4:'D'}
 
-def ONC_catalogs_to_database(radius=0.0001, count=-1):
+def ONC_catalogs_to_database(ra=83.81775*q.deg, dec=-5.38788889*q.deg, onc_radius=10*q.deg, radius=0.0001, count=-1):
     """
     Generated the SQL database from the input catalogs
     """
     # Empty instance
     onc = astrocat.Catalog()
+    db = Nonera_col='_RAJ2000', dec_col='_DEJ2000', 
     
-    # Ingest Vizier catalogs where we want to keep all entries
-    try:
-        onc.ingest_data(path+'raw_data/viz_acs.tsv', 'ACS', 'ONCacs', count=count)
-    except:
-        pass
-    try:
-        onc.ingest_data(path+'raw_data/viz_nicmos.tsv', 'NICMOS', 'ONCnic3', count=count)
-    except:
-        pass
-    try:
-        onc.ingest_data(path+'raw_data/viz_wfpc2.tsv', 'WFPC2', 'ONCpc2', count=count)
-    except:
-        pass
-        
-    # Run grouping
+    # ACS catalog from Robberto+2013
+    onc.Vizier_query('J/ApJS/207/10/table5', 'ACS', ra, dec, onc_radius, group=False)
+    
+    # ACS catalog from Robberto+2013
+    onc.Vizier_query('J/ApJS/207/10/table6', 'WFPC2', ra, dec, onc_radius, group=False)
+
+    # ACS catalog from Robberto+2013
+    onc.Vizier_query('J/ApJS/207/10/table7', 'NICMOS', ra, dec, onc_radius, group=False)
+    
+    # Group sources
     onc.group_sources(radius)
     
-    # For these additional catalogs, just pull records if
-    # they are a match with something in the manual catalog
+    # Get the radius from the ONC center which includes all Robberto+2013 sources
+    center = coord.SkyCoord(ra=ra, dec=dec, frame='icrs')
+    radec = coord.SkyCoord(ra=onc.catalog['ra'], dec=onc.catalog['dec'], unit=(q.deg, q.deg), frame='icrs')
+    onc_radius = np.max(radec.separation(center)).value*q.deg
     
     # Get 2MASS
-    onc.Vizier_xmatch('II/246/out', 'TMASS', ra_col='RAJ2000', dec_col='DEJ2000')
-    
-    # # Get GAIA
-    # onc.Vizier_xmatch('I/337/gaia', 'GAIA')
+    onc.Vizier_query('II/246/out', 'TMASS', ra, dec, onc_radius, group=False)
+
+    # Get GAIA
+    onc.Vizier_query('I/337/gaia', 'GAIA', ra, dec, onc_radius, ra_col='RA_IRCS', dec_col='DE_IRCS', group=False)
 
     # Get ALLWISE
-    onc.Vizier_xmatch('II/328/allwise', 'ALLWISE', ra_col='RAJ2000', dec_col='DEJ2000')
+    onc.Vizier_query('II/328/allwise', 'ALLWISE', ra, dec, onc_radius, group=False)
 
     # Get spectral types from Hillenbrand+2013
-    onc.Vizier_xmatch('J/AJ/146/85/table2', 'Hill13')
+    onc.Vizier_query('J/AJ/146/85/table2', 'Hill13', ra, dec, onc_radius, group=False)
     
-    # Generate SQL database
-    db = generate_ONCdb(onc)
+    onc.group_sources(radius)
+
+    # # Generate SQL database
+    # db = generate_ONCdb(onc)
     
     return onc, db
 
@@ -463,7 +464,7 @@ def add_Hill13_data(db, cat):
     spts = hill13['SpT2']
     
     # Convert the spectral types to integers
-    spts = [csp.specType(s) if isinstance(s, str) else [np.nan,''] for s in spts]
+    spts = [specType(s) if isinstance(s, str) else [np.nan,''] for s in spts]
     typ, lc = np.array(spts).T
     
     # Add to the table
@@ -479,3 +480,69 @@ def add_Hill13_data(db, cat):
     db.query("pragma foreign_keys=ON")
     
     db.save()
+
+def specType(SpT, types=[i for i in 'OBAFGKMLTY'], verbose=False):
+    """
+    Converts between float and letter/number spectral types (e.g. 14.5 => 'B4.5' and 'A3' => 23).
+    
+    Parameters
+    ----------
+    SpT: float, str
+        Float spectral type or letter/number spectral type between O0.0 and Y9.9
+    types: list
+        The MK spectral type letters to include, e.g. ['M','L','T','Y']
+      
+    Returns
+    -------
+    list, str
+        The converted spectral type string or (spectral type, luminosity class) numbers
+    """
+    result = [np.nan, '']
+    try:
+        # String input
+        if isinstance(SpT, (str,bytes)):
+            SpT = SpT.replace("'",'').replace('b','')
+            val, LC = np.nan, ''
+            if SpT[0] in types and SpT!='':
+                MK, LC = SpT[0], 'V'
+                suf = SpT[1:].replace('n','').replace('e','').replace('w','')\
+                             .replace('m','').replace('a','').replace('Fe','')\
+                             .replace('-1','').replace(':','').replace('?','')\
+                             .replace('-V','').replace('p','').replace('<','')\
+                             .replace('>','')
+                
+                if suf.replace('.','').isdigit():
+                    val = float(suf)
+                    
+                else:
+                
+                    for cl in ['III','V','IV']:
+                        try:
+                            idx = suf.find(cl)
+                            val = float(suf[:idx].split('/')[0])
+                            LC = suf[idx:].split('/')[0].split(',')[0]
+                            break
+                        except:
+                            try:
+                                val = float(suf)
+                            except:
+                                continue
+                                
+                # return [types.index(MK)*10+val-(4. if MK in ['M','L','T','Y'] else 0), LC]
+                return [types.index(MK)*10+val, LC]
+
+        # Numerical input
+        elif isinstance(SpT, float) or isinstance(SpT, int) and 0.0 <= SpT < len(types)*10:
+            letter = ''.join(types)[int(SpT // 10)]
+            number = int(SpT % 10) if SpT%10==int(SpT%10) else SpT%10
+            result = '{}{}'.format(letter, number)
+
+        # Bogus input
+        else:
+            if verbose:
+                print('Sir, Spectral type',SpT,'must be a float between 0 and',len(types)*10,'or a string of class',types)
+        
+    except:
+        pass
+        
+    return result
