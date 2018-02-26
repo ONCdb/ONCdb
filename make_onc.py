@@ -26,7 +26,7 @@ def ONC_catalogs_to_database(ra=83.81775*q.deg, dec=-5.38788889*q.deg, onc_radiu
     """
     # Empty instance
     onc = astrocat.Catalog()
-    db = Nonera_col='_RAJ2000', dec_col='_DEJ2000', 
+    db = None
     
     # ACS catalog from Robberto+2013
     onc.Vizier_query('J/ApJS/207/10/table5', 'ACS', ra, dec, onc_radius, group=False)
@@ -49,7 +49,7 @@ def ONC_catalogs_to_database(ra=83.81775*q.deg, dec=-5.38788889*q.deg, onc_radiu
     onc.Vizier_query('II/246/out', 'TMASS', ra, dec, onc_radius, group=False)
 
     # Get GAIA
-    onc.Vizier_query('I/337/gaia', 'GAIA', ra, dec, onc_radius, ra_col='RA_IRCS', dec_col='DE_IRCS', group=False)
+    # onc.Vizier_query('I/337/gaia', 'GAIA', ra, dec, onc_radius, ra_col='RA_IRCS', dec_col='DE_IRCS', group=False)
 
     # Get ALLWISE
     onc.Vizier_query('II/328/allwise', 'ALLWISE', ra, dec, onc_radius, group=False)
@@ -59,9 +59,9 @@ def ONC_catalogs_to_database(ra=83.81775*q.deg, dec=-5.38788889*q.deg, onc_radiu
     
     onc.group_sources(radius)
 
-    # # Generate SQL database
-    # db = generate_ONCdb(onc)
-    
+    # Generate SQL database
+    db = generate_ONCdb(onc)
+        
     return onc, db
 
 def generate_ONCdb(cat):
@@ -109,37 +109,37 @@ def generate_ONCdb(cat):
     try:
         add_acs_data(db, cat.ACS)
     except:
-        pass
-    
+        print('No ACS data added')
+        
     # Add the NICMOS photometry
     try:
         add_nicmos_data(db, cat.NICMOS)
     except:
-        pass
+        print('No NICMOS data added')
 
     # Add the WPC photometry
     try:
         add_wpc2_data(db, cat.WFPC2)
     except:
-        pass
+        print('No WFPC2 data added')
         
     # Add the 2MASS photometry
     try:
         add_2MASS_data(db, cat.TMASS)
     except:
-        pass
+        print('No 2MASS data added')
         
     # Add the ALLWISE photometry
     try:
         add_WISE_data(db, cat.ALLWISE)
     except:
-        pass
+        print('No WISE data added')
         
     # Add the spectral types
     try:
         add_Hill13_data(db, cat.Hill13)
     except:
-        pass
+        print('No Hill13 data added')
         
     return db
 
@@ -153,8 +153,6 @@ def add_acs_data(db, cat):#, file=path+'raw_data/viz_acs_with_IDs.tsv'):
     
     # Rename some columns
     acs.rename_column('Obs', 'epoch')
-    acs.rename_column('_RAJ2000', 'ra')
-    acs.rename_column('_DEJ2000', 'dec')
     
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     acs['publication_shortname'] = ['Robb13']*len(acs)
@@ -215,14 +213,6 @@ def add_nicmos_data(db, cat):#file=path+'raw_data/viz_nicmos_with_IDs.tsv'):
     # nic = ascii.read(file)
     nic = at.Table.from_pandas(cat)
     
-    # Rename some columns
-    try:
-        nic.rename_column('Obs', 'epoch')
-    except:
-        pass
-    nic.rename_column('_RAJ2000', 'ra')
-    nic.rename_column('_DEJ2000', 'dec')
-    
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     nic['publication_shortname'] = ['Robb13']*len(nic)
     nic['telescope_id'] = [1]*len(nic)
@@ -281,14 +271,6 @@ def add_wpc2_data(db, cat):#file=path+'raw_data/viz_wfpc2_with_IDs.tsv'):
     # Read in the data
     # wpc = ascii.read(file)
     wpc = at.Table.from_pandas(cat)
-    
-    # Rename some columns
-    try:
-        wpc.rename_column('Obs', 'epoch')
-    except:
-        pass
-    wpc.rename_column('_RAJ2000', 'ra')
-    wpc.rename_column('_DEJ2000', 'dec')
     
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
     wpc['publication_shortname'] = ['Robb13']*len(wpc)
@@ -350,7 +332,7 @@ def add_2MASS_data(db, cat):
     tmass = at.Table.from_pandas(cat)
     
     # Rename some columns
-    tmass.rename_column('MeasureJD', 'epoch')
+    # tmass.rename_column('MeasureJD', 'epoch')
     # tmass.rename_column('Qfl', 'flags')
     
     # Add columns for telescope_id, instrument_id, system_id, and publication_shortname
