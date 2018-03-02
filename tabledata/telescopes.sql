@@ -1,3 +1,6 @@
 INSERT INTO "telescopes" VALUES(1,'HST',NULL);
 INSERT INTO "telescopes" VALUES(2,'2MASS',NULL);
 INSERT INTO "telescopes" VALUES(3,'WISE',NULL);
+INSERT INTO "telescopes" VALUES(4,'GAIA',NULL);
+INSERT INTO "telescopes" VALUES(5,'LAMOST',NULL);
+INSERT INTO "telescopes" VALUES(6,'SDSS',NULL);
