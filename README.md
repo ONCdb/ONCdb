@@ -9,5 +9,6 @@ If you use this database in your work, please cite the [Zenodo record of the app
 This project was made possible by the generous allocation of the Director's Discretionary Research Fund at the Space Telescope Science Institute. The authors include:
 
 - Joe Filippazzo
-- Mario Gennaro 
+- Mario Gennaro
+- Andrea Lin
 - Massimo Robberto
